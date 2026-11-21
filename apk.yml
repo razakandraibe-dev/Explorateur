@@ -1,0 +1,287 @@
+# Tahiry Lesona MJA : ce fichier demande à GitHub de fabriquer l'APK.
+# Il se lance tout seul à chaque fois que tu envoies un nouveau index.html.
+name: Construire l'APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les fichiers
+        uses: actions/checkout@v4
+
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Installer Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: "Projet - settings.gradle"
+        run: |
+          mkdir -p "$(dirname 'android/settings.gradle')"
+          cat > 'android/settings.gradle' <<'FIN_DU_FICHIER'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "Explorateur"
+          include ':app'
+          FIN_DU_FICHIER
+
+      - name: "Projet - build.gradle"
+        run: |
+          mkdir -p "$(dirname 'android/build.gradle')"
+          cat > 'android/build.gradle' <<'FIN_DU_FICHIER'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          FIN_DU_FICHIER
+
+      - name: "Projet - gradle.properties"
+        run: |
+          mkdir -p "$(dirname 'android/gradle.properties')"
+          cat > 'android/gradle.properties' <<'FIN_DU_FICHIER'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          FIN_DU_FICHIER
+
+      - name: "Appli - build.gradle"
+        run: |
+          mkdir -p "$(dirname 'android/app/build.gradle')"
+          cat > 'android/app/build.gradle' <<'FIN_DU_FICHIER'
+          plugins {
+              id 'com.android.application'
+          }
+
+          def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+
+          android {
+              namespace 'com.heryzo.explorateur'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId 'com.heryzo.explorateur'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode runNumber
+                  versionName "1." + runNumber
+              }
+
+              signingConfigs {
+                  release {
+                      storeFile file('explorateur.jks')
+                      storePassword 'explorateur2026'
+                      keyAlias 'explorateur'
+                      keyPassword 'explorateur2026'
+                      storeType 'pkcs12'
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.release
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              lint {
+                  checkReleaseBuilds false
+                  abortOnError false
+              }
+          }
+          FIN_DU_FICHIER
+
+      - name: "Appli - AndroidManifest.xml"
+        run: |
+          mkdir -p "$(dirname 'android/app/src/main/AndroidManifest.xml')"
+          cat > 'android/app/src/main/AndroidManifest.xml' <<'FIN_DU_FICHIER'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="Tahiry Lesona MJA"
+                  android:icon="@mipmap/ic_launcher"
+                  android:allowBackup="true"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          FIN_DU_FICHIER
+
+      - name: "Appli - MainActivity.java"
+        run: |
+          mkdir -p "$(dirname 'android/app/src/main/java/com/heryzo/explorateur/MainActivity.java')"
+          cat > 'android/app/src/main/java/com/heryzo/explorateur/MainActivity.java' <<'FIN_DU_FICHIER'
+          package com.heryzo.explorateur;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView web;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().setStatusBarColor(Color.parseColor("#0b1d47"));
+                  web = new WebView(this);
+                  web.setBackgroundColor(Color.parseColor("#0b1d47"));
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setTextZoom(100);
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          Uri u = request.getUrl();
+                          if ("file".equals(u.getScheme())) return false;
+                          try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) { }
+                          return true;
+                      }
+                  });
+                  web.setWebChromeClient(new WebChromeClient());
+                  setContentView(web);
+                  if (savedInstanceState != null) web.restoreState(savedInstanceState);
+                  else web.loadUrl("file:///android_asset/index.html");
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle out) {
+                  super.onSaveInstanceState(out);
+                  web.saveState(out);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  web.evaluateJavascript("(function(){try{return window.appBack?window.appBack():0}catch(e){return 0}})()", new ValueCallback<String>() {
+                      @Override
+                      public void onReceiveValue(String v) {
+                          if (!"1".equals(v)) MainActivity.super.onBackPressed();
+                      }
+                  });
+              }
+          }
+          FIN_DU_FICHIER
+
+      - name: Clé de signature (la même à chaque fois, pour les mises à jour)
+        run: |
+          base64 -d > android/app/explorateur.jks <<'FIN_DE_LA_CLE'
+          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
+          FIN_DE_LA_CLE
+
+      - name: Icône et page de l'appli
+        run: |
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi android/app/src/main/assets
+          cp icon-192.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          cp index.html android/app/src/main/assets/index.html
+          for f in bible-mg.js bible-fr.js; do
+            if [ -f "$f" ]; then cp "$f" android/app/src/main/assets/; else echo "ATTENTION : $f absent du depot"; fi
+          done
+
+      - name: Fabriquer l'APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Renommer l'APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk tahiry-lesona-mja.apk
+
+      - name: Garder l'APK dans les résultats
+        uses: actions/upload-artifact@v4
+        with:
+          name: tahiry-lesona-mja-apk
+          path: tahiry-lesona-mja.apk
+
+      - name: Publier l'APK (page Releases)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Tahiry Lesona MJA v${{ github.run_number }}
+          body: APK de l'appli Tahiry Lesona MJA. Télécharge tahiry-lesona-mja.apk et installe-le (elle remplace l'appli Explorateur).
+          files: tahiry-lesona-mja.apk
+          make_latest: true
